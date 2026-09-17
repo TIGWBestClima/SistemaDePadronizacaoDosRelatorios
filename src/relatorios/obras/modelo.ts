@@ -1,0 +1,10 @@
+import {z} from 'zod';
+const short=z.string().max(140);
+const image=z.string().max(15_000_000).refine(v=>v===''||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v),'Imagem inválida');
+export const tabelaSchema=z.object({id:z.string().min(1),linhas:z.array(z.array(z.string().max(100000)).min(1).max(40)).min(1).max(2000)}).refine(t=>t.linhas.every(l=>l.length===t.linhas[0].length),'Tabela irregular');
+export type Tabela=z.infer<typeof tabelaSchema>;
+export const projetoObrasSchema=z.object({formato:z.literal(1),modelo:z.literal('obras'),versaoModelo:z.literal(1),gerais:z.object({obra:short,tipoRelatorio:short}),itens:z.array(z.object({id:z.string().min(1),tipo:z.enum(['fotografico','descritivo']),servico:short,pavimento:short,foto:image,legenda:short,tipoDescricao:short,descricao:z.string().max(100000),tabelas:z.array(tabelaSchema).max(50).optional()})).max(10000)}).refine(p=>new Set(p.itens.map(i=>i.id)).size===p.itens.length,'Identificadores repetidos');
+export type ProjetoObras=z.infer<typeof projetoObrasSchema>;
+export type RegistroObras=ProjetoObras['itens'][number];
+export const novoRegistro=(tipo:RegistroObras['tipo']):RegistroObras=>({id:crypto.randomUUID(),tipo,servico:'',pavimento:'',foto:'',legenda:'',tipoDescricao:'',descricao:''});
+export const novoProjetoObras=():ProjetoObras=>({formato:1,modelo:'obras',versaoModelo:1,gerais:{obra:'',tipoRelatorio:'AVANÇO DE OBRA'},itens:[]});

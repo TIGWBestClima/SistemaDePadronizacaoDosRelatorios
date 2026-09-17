@@ -1,0 +1,18 @@
+import {z} from 'zod';
+export const layoutQualidade={formato:'A4',orientacao:'landscape',itensPorPagina:3} as const;
+export const criterios=['Atendimento','Prazo','Segurança','Qualidade','Limpeza','Desperdício'] as const;
+export const notas=['Não avaliado','Ruim','Regular','Bom','Ótimo'] as const;
+export const prioridades=['Não definida','Baixa','Média','Alta'] as const;
+export const status=['Não definido','A executar','Recusado','Aceito'] as const;
+export type Campo={key:string;label:string;type?:'date'|'textarea';options?:readonly string[]};
+export const camposGerais:Campo[]=[{key:'cliente',label:'Cliente'},{key:'obra',label:'Projeto / obra'},{key:'numero',label:'Número do relatório'},{key:'revisao',label:'Revisão'},{key:'visita',label:'Data da visita',type:'date'},{key:'emissao',label:'Data de emissão',type:'date'},{key:'retorno',label:'Prazo de retorno',type:'date'},{key:'responsavel',label:'Responsável pelo relatório'},{key:'endereco',label:'Endereço'}];
+export const camposItem:Campo[]=[{key:'etapa',label:'Etapa'},{key:'disciplina',label:'Disciplina'},{key:'tipo',label:'Tipo'},{key:'local',label:'Local'},{key:'descricao',label:'Descrição',type:'textarea'},{key:'prioridade',label:'Prioridade',options:prioridades},{key:'responsavel',label:'Responsável pela ação'},{key:'status',label:'Status',options:status},{key:'prazo',label:'Prazo',type:'date'},{key:'registro',label:'Data do registro',type:'date'},{key:'correcao',label:'Data da correção',type:'date'}];
+const short=z.string().max(140);
+const date=z.string().refine(v=>v==='' || (/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v),'Data inválida');
+const image=z.string().max(15_000_000).refine(v=>v===''||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v),'Imagem inválida');
+export const itemSchema=z.object({id:z.string().min(1),etapa:short,disciplina:short,tipo:short,local:short,descricao:z.string().max(100_000),prioridade:z.enum(prioridades),responsavel:short,status:z.enum(status),prazo:date,registro:date,correcao:date,foto:image,fotoCorrecao:image});
+export const projetoSchema=z.object({formato:z.literal(1),modelo:z.literal('qualidade'),versaoModelo:z.literal(1),gerais:z.object({cliente:short,obra:short,numero:short,revisao:short,visita:date,emissao:date,retorno:date,responsavel:short,endereco:short}),capa:image,itens:z.array(itemSchema).max(10000),observacoes:z.string().max(100_000),avaliacao:z.record(z.string(),z.enum(notas))}).refine(p=>new Set(p.itens.map(i=>i.id)).size===p.itens.length,'Identificadores repetidos');
+export type Projeto=z.infer<typeof projetoSchema>;
+export type Item=z.infer<typeof itemSchema>;
+export const novoItem=():Item=>({id:crypto.randomUUID(),etapa:'Inspeção da Qualidade',disciplina:'',tipo:'RNC',local:'',descricao:'',prioridade:'Não definida',responsavel:'',status:'Não definido',prazo:'',registro:'',correcao:'',foto:'',fotoCorrecao:''});
+export const novoProjeto=():Projeto=>({formato:1,modelo:'qualidade',versaoModelo:1,gerais:{cliente:'',obra:'',numero:'01',revisao:'R00',visita:'',emissao:'',retorno:'',responsavel:'',endereco:''},capa:'',itens:[],observacoes:'',avaliacao:Object.fromEntries(criterios.map(c=>[c,'Não avaliado']))});

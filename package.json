@@ -1,0 +1,56 @@
+{
+  "name": "best-clima-relatorios",
+  "type": "module",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Protótipo local de relatórios Best Clima",
+  "author": "Best Clima",
+  "main": "dist-desktop/main.cjs",
+  "scripts": {
+    "dev": "node node_modules/vite/bin/vite.js",
+    "build": "node node_modules/typescript/bin/tsc --noEmit && node node_modules/typescript/bin/tsc -p tsconfig.desktop.json && node node_modules/vite/bin/vite.js build",
+    "start": "npm run build -- --emptyOutDir false && node node_modules/electron/cli.js .",
+    "test": "node node_modules/@playwright/test/cli.js test",
+    "package:win": "npm run build && node node_modules/electron-builder/cli.js --win portable",
+    "package:mac": "npm run build && node node_modules/electron-builder/cli.js --mac dmg"
+  },
+  "build": {
+    "appId": "br.com.bestclima.relatorios",
+    "productName": "Best Clima Relatórios",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-desktop/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.9",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "pdfjs-dist": "^6.3.289",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  }
+}
