@@ -1,0 +1,106 @@
+name: Gerar aplicativos
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            platform: win
+            arch: x64
+          - name: Mac Intel
+            os: macos-15
+            platform: mac
+            arch: x64
+          - name: Mac Apple Silicon
+            os: macos-15
+            platform: mac
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Conferir versão da tag
+        shell: bash
+        run: |
+          node -e "const p=require('./package.json'); if(process.env.GITHUB_REF_TYPE==='tag' && process.env.GITHUB_REF_NAME!=='v'+p.version) throw Error('A tag deve corresponder à versão do package.json');"
+      - run: npm ci
+      - run: npm run build
+      - name: Instalar navegador dos testes
+        if: matrix.platform == 'win'
+        run: node node_modules/@playwright/test/cli.js install msedge
+      - name: Testar relatórios
+        if: matrix.platform == 'win'
+        run: npm test
+      - name: Empacotar Windows
+        if: matrix.platform == 'win'
+        shell: bash
+        run: node node_modules/electron-builder/cli.js --win portable --x64 --publish never '-c.artifactName=Best-Clima-Relatorios-${version}-win-${arch}.${ext}'
+      - name: Empacotar Mac
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: node node_modules/electron-builder/cli.js --mac dmg --${{ matrix.arch }} --publish never '-c.mac.identity=-' '-c.mac.notarize=false' '-c.artifactName=Best-Clima-Relatorios-${version}-mac-${arch}.${ext}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aplicativo-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.exe
+            release/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  release:
+    name: Criar release em rascunho
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: aplicativo-*
+          merge-multiple: true
+          path: aplicativos
+      - name: Reunir instaladores na release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd aplicativos
+          sha256sum ./*.exe ./*.dmg > SHA256.txt
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
+            if [ "$draft" != true ]; then
+              echo 'Esta versão já foi publicada. Use uma nova versão para evitar substituir instaladores publicados.'
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Best Clima Relatórios $RELEASE_TAG" --notes 'Windows x64 e macOS Intel/Apple Silicon. Confira os aplicativos antes de publicar. Os aplicativos Mac usam assinatura ad-hoc, sem notarização Apple.'
+          fi
+          gh release upload "$RELEASE_TAG" ./*.exe ./*.dmg SHA256.txt --clobber
