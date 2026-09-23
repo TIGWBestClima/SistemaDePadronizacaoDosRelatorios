@@ -20,26 +20,35 @@ app.whenReady().then(()=>{
   ipcMain.on('dirty',(event,value)=>{trusted(event);dirty=value===true;});
   ipcMain.handle('open-file',async(event,kind)=>{
     trusted(event);
-    if(kind!=='project'&&kind!=='image')throw new Error('Tipo de arquivo inválido.');
+    if(kind!=='project'&&kind!=='image'&&kind!=='spreadsheet')throw new Error('Tipo de arquivo inválido.');
     try{
-      const result=await dialog.showOpenDialog(main,{properties:['openFile'],filters:kind==='project'?[{name:'Projeto Best Clima',extensions:['bcrel']}]:[{name:'Imagem',extensions:['png','jpg','jpeg','webp']}]});
+      const result=await dialog.showOpenDialog(main,{properties:['openFile'],filters:kind==='spreadsheet'?[{name:'Planilha Excel',extensions:['xlsx']}]:kind==='project'?[{name:'Projeto Best Clima',extensions:['bcrel']}]:[{name:'Imagem',extensions:['png','jpg','jpeg','webp']}]});
       if(result.canceled||!result.filePaths[0])return null;
       const filePath=result.filePaths[0];
       const ext=path.extname(filePath).toLowerCase();
       const mimes:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
-      if(kind==='project'?ext!=='.bcrel':!mimes[ext])throw new Error('Formato de arquivo não permitido.');
-      const limit=(kind==='project'?200:10)*1024*1024;
+      if(kind==='spreadsheet'?ext!=='.xlsx':kind==='project'?ext!=='.bcrel':!mimes[ext])throw new Error('Formato de arquivo não permitido.');
+      const limit=(kind==='project'?200:kind==='spreadsheet'?50:10)*1024*1024;
       const handle=await fs.open(filePath,'r');
       try{
         const stat=await handle.stat();
         if(!stat.isFile()||stat.size>limit)throw new Error('Arquivo inválido ou acima do limite de tamanho.');
         const bytes=await handle.readFile();
         if(bytes.byteLength>limit)throw new Error('Arquivo acima do limite de tamanho.');
-        return {name:path.basename(filePath),mime:kind==='project'?'application/octet-stream':mimes[ext],bytes};
+        return {name:path.basename(filePath),mime:kind==='spreadsheet'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':kind==='project'?'application/octet-stream':mimes[ext],bytes};
       }finally{await handle.close();}
     }finally{
       if(!main.isDestroyed()){main.focus();main.webContents.focus();}
     }
+  });
+  ipcMain.handle('save-spreadsheet',async(event,bytes,modelo)=>{
+    trusted(event);
+    if(!(bytes instanceof Uint8Array)||bytes.byteLength>50*1024*1024||!['qualidade','obras'].includes(modelo))throw new Error('Planilha inválida.');
+    try{
+      const result=await dialog.showSaveDialog(main,{defaultPath:'modelo-'+modelo+'.xlsx',filters:[{name:'Planilha Excel',extensions:['xlsx']}]});
+      if(result.canceled||!result.filePath)return false;
+      await fs.writeFile(result.filePath,bytes);return true;
+    }finally{if(!main.isDestroyed()){main.focus();main.webContents.focus();}}
   });
   ipcMain.handle('save-project',async(event,bytes)=>{
     trusted(event);
