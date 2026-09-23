@@ -4,7 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 const output=path.resolve('verificacao/excel');await fs.mkdir(output,{recursive:true});
 const environment=Object.fromEntries(Object.entries(process.env).filter(([key])=>key!=='ELECTRON_RUN_AS_NODE'));
-const app=await electron.launch({args:['.','--headless'],env:environment,timeout:30000});
+const executablePath=process.argv[2]?path.resolve(process.argv[2]):undefined;
+const app=await electron.launch({executablePath,args:executablePath?['--headless']:['.','--headless'],env:environment,timeout:30000});
 try{
  const page=await app.firstWindow();
  await app.evaluate(({dialog},output)=>{dialog.showSaveDialog=async(...args)=>({canceled:false,filePath:output+'/'+args.at(-1).defaultPath});},output);
