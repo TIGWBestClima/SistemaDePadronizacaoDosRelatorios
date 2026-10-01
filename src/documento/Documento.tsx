@@ -31,7 +31,7 @@ export function documentHtml(p:Projeto){
     <Avaliacao avaliacao={p.avaliacao}/>
   </>);
   const header=renderToStaticMarkup(<header><div><small>ENGENHARIA DA QUALIDADE</small><h2>Relatório de Qualidade</h2><strong>{p.gerais.obra||'Projeto'}</strong></div><img src={selo} alt="Engenharia da Qualidade"/></header>);
-  return `<!doctype html><html lang="pt-BR" data-orientation="${layoutQualidade.orientacao}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><style>${css}</style></head><body><div id="source">${blocks}</div><template id="page-template"><article class="page">${header}<div class="page-number"></div><main></main></article></template><div id="pages"></div></body></html>`;
+  return `<!doctype html><html lang="pt-BR" data-modelo="qualidade" data-orientation="${layoutQualidade.orientacao}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><style>${css}</style></head><body><div id="source">${blocks}</div><template id="page-template"><article class="page">${header}<div class="page-number"></div><main></main></article></template><div id="pages"></div></body></html>`;
 }
 export async function paginate(doc:Document){
   await doc.fonts.ready;
