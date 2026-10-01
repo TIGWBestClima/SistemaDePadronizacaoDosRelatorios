@@ -4,7 +4,7 @@ Protótipo 0.1.1 em TypeScript, React e Electron. O PDF de Qualidade enviado pel
 
 ## Executar
 
-No Windows, a versão portátil é gerada em `release/0.1.1/Best Clima Relatórios 0.1.1.exe`. Abra esse arquivo para usar o aplicativo. O executável ainda utiliza o ícone padrão do Electron e não possui assinatura digital.
+No Windows, a versão portátil é gerada em `release/0.1.1/Best Clima Relatórios 0.1.1.exe`. Abra esse arquivo para usar o aplicativo. O ícone do aplicativo fica em `build/icon.png` (gerado a partir de `src/identidade/icone-app.svg`). O executável não possui assinatura digital.
 
 Com Node.js instalado, nesta pasta:
 
@@ -16,7 +16,20 @@ npm.cmd start
 
 `npm.cmd run dev` abre um servidor de desenvolvimento local (o terminal informa o endereço). No navegador, a exportação usa a janela de impressão; no Electron, usa o diálogo de salvamento de PDF.
 
-## Uso
+## Modelos
+
+- **Qualidade** (A4): registros de inspeção, avaliação e observações.
+- **Avanço de Obras** (16:9): registros fotográficos e descritivos, com tabelas coladas.
+- **Visita Técnica** (16:9): objetivo, constatações com recomendação e foto opcional, e conclusão.
+- **Fotográfico** (16:9): fotos em grade de 1, 2, 4 ou 6 por página. Permite adicionar várias fotos de uma vez e reordenar.
+- **Limpeza de Dutos** (16:9): pontos de limpeza com fotos de antes e depois, e plantas com os pontos marcados no próprio aplicativo (clique na planta para marcar).
+- **Apontamentos** (16:9): uma página por apontamento, com foto e descrição.
+- **Assessment** (16:9): avaliação de desempenho do colaborador. Competências com nota de 1 a 5, metas, pontos fortes e a desenvolver, PDI, parecer, classificação final e página de assinaturas.
+- **Receitas x Despesas** (16:9): um período por página, com indicadores, ponte de valores e demonstrativo, mais um comparativo quando há mais de um período. Os valores vêm de qualquer planilha .xlsx: em **Importar de planilha**, o usuário clica na célula de cada campo ou escreve uma fórmula no estilo do Excel (`C5-C9`, `'Outra aba'!B2*2`, `SOMA(C3:C9;-C12)`). As escolhas ficam salvas no projeto e em cada período: **Editar células da planilha** reabre a seleção para corrigir um campo sem refazer a importação. A receita de obras para zerar é calculada como (despesa sem corretiva + despesa de corretiva e VM) − (receita preventiva + receita corretiva e VM), quando o resultado é positivo.
+
+Os quatro últimos compartilham o esquema em `src/relatorios/campo/modelo.ts`; cada variante define seus campos e rótulos.
+
+## Uso (Qualidade)
 
 1. Escolha **Relatório de Qualidade**.
 2. Preencha os dados gerais e, se desejado, a foto da capa.

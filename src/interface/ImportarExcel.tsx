@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import type {Projeto} from '../relatorios/modelo';
 import type {RevisaoExcel} from '../projeto/planilha';
 import {escolherArquivo} from './arquivos';
+import {catalogo} from '../relatorios/catalogo';
 
 export function ImportarExcel({project,apply,disabled,notify}:{project:Projeto;apply:(p:Projeto)=>void;disabled:boolean;notify:(s:string)=>void}){
  const [open,setOpen]=useState(false),[loading,setLoading]=useState(false),[message,setMessage]=useState('');
@@ -11,6 +12,7 @@ export function ImportarExcel({project,apply,disabled,notify}:{project:Projeto;a
  async function template(){
   setLoading(true);setMessage('');
   try{
+   if(project.modelo==='assessment'||project.modelo==='financeiro')return;
    const {criarModeloExcel}=await import('../projeto/planilha');const bytes=await criarModeloExcel(project.modelo);
    if(window.desktop)await window.desktop.saveSpreadsheet(bytes,project.modelo);
    else{const url=URL.createObjectURL(new Blob([new Uint8Array(bytes)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));const a=document.createElement('a');a.href=url;a.download=`modelo-${project.modelo}.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -24,7 +26,7 @@ export function ImportarExcel({project,apply,disabled,notify}:{project:Projeto;a
  async function choose(){if(window.desktop){try{await read(await escolherArquivo('spreadsheet'));}catch(e){setMessage(e instanceof Error?e.message:'Não foi possível abrir o arquivo.');}}else input.current?.click();}
  return <><button type="button" disabled={disabled||loading} onClick={()=>{setReview(null);setMessage('');setOpen(true);}}>Importar Excel</button>
  <dialog ref={dialog} className="excel-dialog" aria-labelledby="excel-title" onCancel={e=>{e.preventDefault();if(!loading)setOpen(false);}}>
-  <h2 id="excel-title">Importar Excel — {project.modelo==='qualidade'?'Qualidade':'Avanço de Obras'}</h2>
+  <h2 id="excel-title">Importar Excel — {catalogo.find(m=>m.id===project.modelo)?.curto}</h2>
   <p>Use a planilha-modelo deste relatório. Os registros serão acrescentados aos {project.itens.length} já existentes.</p>
   <p className="excel-help">As informações gerais e a avaliação preenchidas na planilha atualizarão os respectivos campos. Campos vazios e fotos existentes serão preservados. Uma segunda importação da mesma planilha acrescenta os registros novamente.</p>
   <div className="excel-actions"><button disabled={loading} onClick={choose}>{review?'Escolher outra planilha':'Selecionar planilha Excel'}</button><button disabled={loading} onClick={template}>Baixar modelo Excel</button></div>

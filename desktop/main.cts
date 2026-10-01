@@ -41,9 +41,32 @@ app.whenReady().then(()=>{
       if(!main.isDestroyed()){main.focus();main.webContents.focus();}
     }
   });
+  const imagens:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
+  ipcMain.handle('open-images',async event=>{
+    trusted(event);
+    try{
+      const result=await dialog.showOpenDialog(main,{properties:['openFile','multiSelections'],filters:[{name:'Imagem',extensions:['png','jpg','jpeg','webp']}]});
+      if(result.canceled)return [];
+      if(result.filePaths.length>200)throw new Error('Selecione até 200 imagens por vez.');
+      const files=[];
+      for(const filePath of result.filePaths){
+        const mime=imagens[path.extname(filePath).toLowerCase()];
+        if(!mime)throw new Error('Formato de arquivo não permitido.');
+        const handle=await fs.open(filePath,'r');
+        try{
+          const stat=await handle.stat();
+          if(!stat.isFile()||stat.size>10*1024*1024)throw new Error(`${path.basename(filePath)}: arquivo inválido ou acima de 10 MB.`);
+          files.push({name:path.basename(filePath),mime,bytes:await handle.readFile()});
+        }finally{await handle.close();}
+      }
+      return files;
+    }finally{
+      if(!main.isDestroyed()){main.focus();main.webContents.focus();}
+    }
+  });
   ipcMain.handle('save-spreadsheet',async(event,bytes,modelo)=>{
     trusted(event);
-    if(!(bytes instanceof Uint8Array)||bytes.byteLength>50*1024*1024||!['qualidade','obras'].includes(modelo))throw new Error('Planilha inválida.');
+    if(!(bytes instanceof Uint8Array)||bytes.byteLength>50*1024*1024||!['qualidade','obras','visita','fotografico','dutos','apontamento'].includes(modelo))throw new Error('Planilha inválida.');
     try{
       const result=await dialog.showSaveDialog(main,{defaultPath:'modelo-'+modelo+'.xlsx',filters:[{name:'Planilha Excel',extensions:['xlsx']}]});
       if(result.canceled||!result.filePath)return false;

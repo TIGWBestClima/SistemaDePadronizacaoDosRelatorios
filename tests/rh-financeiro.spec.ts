@@ -1,0 +1,127 @@
+import {test,expect,type Page} from '@playwright/test';
+import ExcelJS from 'exceljs';
+import fs from 'node:fs/promises';
+import {abrirProjeto} from '../src/projeto/arquivo';
+import {numeroDeTexto} from '../src/projeto/leitorPlanilha';
+import {avaliar,inserirReferencia} from '../src/projeto/formula';
+import {calcular,novoPeriodo} from '../src/relatorios/financeiro/modelo';
+async function abrir(page:Page,nome:string){await page.goto('/');await page.getByRole('button',{name:new RegExp('MODELO DISPONÍVEL.*'+nome)}).click();}
+const pronto=(page:Page)=>expect(page.getByRole('button',{name:/Exportar PDF/})).toBeEnabled();
+const semEstouro=(page:Page)=>page.frameLocator('iframe').locator('.record-page main').evaluateAll(ns=>ns.every(n=>n.scrollHeight<=n.clientHeight+1));
+async function salvar(page:Page,nome:string){const d=page.waitForEvent('download');await page.getByRole('button',{name:/Salvar projeto/}).click();await (await d).saveAs(`test-results/${nome}.bcrel`);return abrirProjeto(new Uint8Array(await fs.readFile(`test-results/${nome}.bcrel`)).buffer);}
+async function capturar(page:Page,seletores:Record<string,string>){const print=await page.context().newPage();await print.setContent(await page.frameLocator('iframe').locator('html').evaluate(n=>n.outerHTML));for(const [nome,sel] of Object.entries(seletores))await print.locator(sel).first().screenshot({path:`test-results/${nome}.png`});await print.close();}
+test('assessment: competências, metas, PDI, parecer e assinaturas',async({page})=>{
+ await abrir(page,'Relatório de Assessment');
+ await page.getByLabel('Colaborador',{exact:true}).fill('Ana Souza');
+ await page.getByLabel('Cargo',{exact:true}).fill('Técnica de manutenção');
+ await page.getByLabel('Avaliador (gestor)',{exact:true}).fill('Carlos Lima');
+ await page.getByLabel('Período avaliado',{exact:true}).fill('1º semestre 2026');
+ await page.getByRole('button',{name:/02.*Competências/}).click();
+ for(const [nome,nota] of [['Comunicação','4'],['Trabalho em equipe','5'],['Conhecimento técnico','3']] as const)await page.getByRole('group',{name:'Nota de '+nome}).getByRole('button',{name:nota,exact:true}).click();
+ await page.getByLabel('Comentário da competência 1',{exact:true}).fill('Comunica-se bem com clientes e equipe.');
+ await expect(page.getByText('média 4')).toBeVisible();
+ await page.getByRole('button',{name:/03.*Metas/}).click();
+ await page.getByRole('button',{name:/Adicionar meta/}).click();
+ await page.getByLabel('Meta 1',{exact:true}).fill('Reduzir chamados reabertos');
+ await page.getByLabel('Status da meta 1',{exact:true}).selectOption('Atingida');
+ await page.getByRole('button',{name:/04.*Desenvolvimento/}).click();
+ await page.getByLabel('Pontos fortes',{exact:true}).fill('Organização e atendimento.');
+ await page.getByRole('button',{name:/Adicionar ação/}).click();
+ await page.getByLabel('Ação de desenvolvimento 1',{exact:true}).fill('Curso de NR-10');
+ await page.getByRole('button',{name:/05.*Parecer/}).click();
+ await page.getByLabel('Classificação final',{exact:true}).selectOption('Atende ao esperado');
+ await page.getByLabel('Parecer do avaliador',{exact:true}).fill('Desempenho consistente no período.');
+ await pronto(page);
+ const frame=page.frameLocator('iframe');
+ await expect(frame.locator('.rh-resumo .hero')).toContainText('4,0');
+ await expect(frame.locator('.competencias')).toHaveCount(2);
+ await expect(frame.locator('.status.good')).toHaveText('✓Atingida');
+ await expect(frame.locator('.rh-assinaturas .assinaturas div')).toHaveCount(3);
+ await expect(frame.locator('.page')).toHaveCount(11);
+ expect(await semEstouro(page)).toBe(true);
+ await capturar(page,{'rh-resumo':'.rh-resumo','rh-competencias':'.rh-tabela','rh-assinaturas':'.rh-assinaturas'});
+ const r=await salvar(page,'assessment');if(r.modelo!=='assessment')throw Error();
+ expect(r.itens.filter(i=>i.nota>0).length).toBe(3);expect(r.metas[0].status).toBe('Atingida');expect(r.classificacao).toBe('Atende ao esperado');
+});
+async function planilha(valores:[number,number,number,number],arquivo:string){
+ const wb=new ExcelJS.Workbook();
+ wb.addWorksheet('Oculta').state='hidden';
+ const ws=wb.addWorksheet('Resumo');
+ ws.getCell('B1').value='DEMONSTRATIVO';ws.mergeCells('B1:D1');
+ const linhas=['Receita preventiva','Receita corretiva + VM','Despesa sem corretiva','Despesa corretiva + VM'];
+ linhas.forEach((l,i)=>{ws.getCell(3+i,2).value=l;ws.getCell(3+i,3).value=valores[i];});
+ ws.getCell('C8').value={formula:'C3+C4',result:valores[0]+valores[1]};ws.getCell('B8').value='Total receitas';
+ ws.getCell('C9').value='R$ 1.234,56';
+ await fs.writeFile(`test-results/${arquivo}`,Buffer.from(await wb.xlsx.writeBuffer()));
+}
+test('receitas x despesas: importar por seleção de células e reaproveitar o mapeamento',async({page})=>{
+ await planilha([120000,45000,180000,30000],'financeiro julho 2026.xlsx');await planilha([150000,40000,170000,25000],'financeiro agosto 2026.xlsx');
+ await abrir(page,'Relatório Financeiro Receitas x Despesas');
+ await page.getByLabel('Unidade / área (opcional)',{exact:true}).fill('Manutenção');
+ await page.getByRole('button',{name:/02.*Períodos/}).click();
+ await page.locator('input[accept=".xlsx"]').setInputFiles('test-results/financeiro julho 2026.xlsx');
+ const modal=page.getByRole('dialog',{name:'financeiro julho 2026.xlsx'});await expect(modal).toBeVisible();
+ await expect(modal.getByLabel('Nome do período')).toHaveValue('Julho/2026');
+ await expect(modal.getByLabel('Aba da planilha').locator('option')).toHaveText(['Oculta (oculta)','Resumo']);
+ const celula=(ref:string)=>modal.locator(`.sheet-grid td[title="${ref}"], .sheet-grid td[title^="${ref}:"]`);
+ await expect(celula('B1')).toContainText('DEMONSTRATIVO');await expect(celula('C8')).toContainText('165.000');
+ await celula('B3').click();await expect(modal.getByRole('status')).toContainText('não contém um número');
+ for(const ref of ['C3','C4','C5','C6'])await celula(ref).click();
+ await expect(modal.getByLabel('Fórmula de Despesa de corretiva + VM')).toHaveValue('C6');await expect(modal.locator('li.sheet-field').nth(3)).toContainText('R$ 30.000,00');
+ await modal.getByLabel('Buscar texto').fill('corretiva');await modal.getByRole('button',{name:'Buscar',exact:true}).click();await expect(modal.getByRole('status')).toContainText('1 de 3');
+ await modal.getByRole('button',{name:'Adicionar período'}).click();await expect(modal).toBeHidden();
+ await expect(page.getByLabel('Receita de manutenção preventiva',{exact:true})).toHaveValue('120000');
+ await pronto(page);
+ const frame=page.frameLocator('iframe');
+ await expect(frame.locator('.fin-resumo .kpis .destaque b')).toHaveText('R$ 45.000,00');
+ await expect(frame.locator('.fin-resumo .bar')).toHaveCount(6);await expect(frame.locator('.fin-resumo .bar.necessaria')).toHaveCount(1);
+ await page.locator('input[accept=".xlsx"]').setInputFiles('test-results/financeiro agosto 2026.xlsx');
+ const segundo=page.getByRole('dialog',{name:'financeiro agosto 2026.xlsx'});
+ await expect(segundo.getByLabel('Fórmula de Receita de manutenção preventiva')).toHaveValue('C3');await expect(segundo.locator('li.sheet-field').first()).toContainText('R$ 150.000,00');
+ await segundo.getByRole('button',{name:'Adicionar período'}).click();
+ await page.getByLabel('Receita de obras realizada (opcional)',{exact:true}).fill('20000');
+ await pronto(page);
+ await expect(frame.locator('.fin-evolucao')).toHaveCount(1);await expect(frame.locator('.fin-evolucao tbody tr')).toHaveCount(2);
+ await expect(frame.locator('.fin-resumo').nth(1).locator('.bar')).toHaveCount(7);
+ expect(await semEstouro(page)).toBe(true);
+ await capturar(page,{'fin-resumo':'.fin-resumo','fin-resumo-obras':'.fin-resumo >> nth=1','fin-evolucao':'.fin-evolucao'});
+ await page.locator('input[accept=".xlsx"]').setInputFiles('test-results/financeiro julho 2026.xlsx');await expect(page.getByRole('dialog',{name:'financeiro julho 2026.xlsx'}).locator('.sheet-grid')).toBeVisible();await page.screenshot({path:'test-results/fin-modal.png'});await page.getByRole('dialog').getByRole('button',{name:'Cancelar'}).click();
+ // Reabrir a seleção de um período já importado e corrigir um campo com fórmula.
+ await page.getByLabel('Período em edição').selectOption({label:'1 · Julho/2026'});
+ await page.getByRole('button',{name:'✎ Editar células da planilha'}).click();
+ const edicao=page.getByRole('dialog',{name:'financeiro julho 2026.xlsx'});await expect(edicao.getByText('EDITAR CÉLULAS DO PERÍODO')).toBeVisible();
+ await expect(edicao.getByLabel('Fórmula de Despesa sem corretiva')).toHaveValue('C5');
+ const formula=edicao.getByLabel('Fórmula de Despesa sem corretiva');await formula.fill('C5-');
+ await expect(edicao.locator('li.sheet-field').nth(2)).toContainText('terminou');await expect(edicao.getByRole('button',{name:'Salvar alterações'})).toBeDisabled();
+ await edicao.locator('.sheet-grid td[title^="C9:"]').click();await expect(formula).toHaveValue('C5-C9');await expect(edicao.locator('li.sheet-field').nth(2)).toContainText('R$ 178.765,44');
+ await edicao.getByLabel('Fórmula de Receita de manutenção preventiva').fill('SOMA(C3:C4;-C4)');await expect(edicao.locator('li.sheet-field').first()).toContainText('R$ 120.000,00');
+ await page.screenshot({path:'test-results/fin-modal-formula.png'});await edicao.getByRole('button',{name:'Salvar alterações'}).click();await expect(edicao).toBeHidden();
+ await expect(page.getByLabel('Despesa sem corretiva',{exact:true})).toHaveValue('178765.44');await expect(page.getByLabel('Período em edição').locator('option')).toHaveCount(2);
+ await pronto(page);await expect(frame.locator('.fin-resumo').first().locator('.kpis .destaque b')).toHaveText('R$ 43.765,44');
+ const r=await salvar(page,'financeiro');if(r.modelo!=='financeiro')throw Error();
+ expect(r.itens[0].celulas.despesaSemCorretiva).toEqual({aba:'Resumo',formula:'C5-C9'});
+ // Depois de reabrir o projeto, a planilha não está em memória: o app pede o arquivo e abre a edição com as fórmulas salvas.
+ await page.getByRole('button',{name:/Todos os relatórios/}).click();
+ await page.locator('input[accept=".bcrel"]').setInputFiles('test-results/financeiro.bcrel');
+ await page.getByRole('button',{name:/02.*Períodos/}).click();
+ const escolha=page.waitForEvent('filechooser');await page.getByRole('button',{name:'✎ Editar células da planilha'}).click();
+ await expect(page.getByRole('status')).toContainText('Selecione novamente a planilha');
+ await (await escolha).setFiles('test-results/financeiro julho 2026.xlsx');
+ const reaberta=page.getByRole('dialog',{name:'financeiro julho 2026.xlsx'});await expect(reaberta.getByLabel('Fórmula de Despesa sem corretiva')).toHaveValue('C5-C9');
+ await reaberta.getByRole('button',{name:'Cancelar'}).click();
+ expect(r.itens.map(i=>i.nome)).toEqual(['Julho/2026','Agosto/2026']);expect(r.mapeamento.despesaCorretivaVm).toEqual({aba:'Resumo',formula:'C6'});expect(r.itens[1].receitaObrasRealizada).toBe(20000);
+});
+test('receitas x despesas: cálculos e leitura de números',()=>{
+ expect(numeroDeTexto('R$ 1.234,56')).toBe(1234.56);expect(numeroDeTexto('(2.000,00)')).toBe(-2000);expect(numeroDeTexto('15%')).toBe(0.15);expect(numeroDeTexto('1.234.567')).toBe(1234567);expect(numeroDeTexto('Total')).toBeNull();
+ const c=calcular({...novoPeriodo('x'),receitaPreventiva:100,receitaCorretivaVm:50,despesaSemCorretiva:200,despesaCorretivaVm:30,receitaObrasRealizada:100});
+ expect(c).toMatchObject({receitaManutencao:150,despesaTotal:230,resultadoManutencao:-80,obrasNecessaria:80,resultadoCorretiva:20,resultadoFinal:20,cobertura:1.25});
+});
+test('fórmulas dos campos importados',()=>{
+ const celulas:Record<string,Record<string,{texto:string;numero:number|null}>>={Resumo:{C3:{texto:'100',numero:100},C4:{texto:'50',numero:50},C5:{texto:'Total',numero:null}},'Outra aba':{B2:{texto:'10',numero:10}}};
+ const ler=(aba:string,l:number,c:number)=>celulas[aba]?.[String.fromCharCode(64+c)+l]??{texto:'',numero:null};
+ const v=(f:string)=>{const r=avaliar(f,'Resumo',ler,['Resumo','Outra aba']);return 'valor' in r?r.valor:r.erro;};
+ expect(v('=C3+C4')).toBe(150);expect(v('c3*2-C4/5')).toBe(190);expect(v("C3+'Outra aba'!B2")).toBe(110);expect(v('(C3+C4)*10%')).toBe(15);
+ expect(v('SOMA(C3:C5;5)')).toBe(155);expect(v('MÉDIA(C3:C4)')).toBe(75);expect(v('$C$3+1,5')).toBe(101.5);expect(v('C9+1')).toBe(1);
+ expect(v('C5+1')).toContain('não contém um número');expect(v('C3/0')).toContain('Divisão por zero');expect(v('C3:C4')).toContain('SOMA(C3:C4)');expect(v('C3+')).toContain('terminou');expect(v("Nada!C3")).toContain('não existe');
+ expect(inserirReferencia('C3+','Resumo','Resumo',4,3)).toEqual({formula:'C3+C4',acrescentou:true});expect(inserirReferencia('C3','Resumo','Outra aba',2,2)).toEqual({formula:"'Outra aba'!B2",acrescentou:false});expect(inserirReferencia('C3*','Resumo','Outra aba',2,2).formula).toBe("C3*'Outra aba'!B2");
+});

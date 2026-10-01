@@ -3,6 +3,8 @@ import JSZip from 'jszip';
 import {camposGerais,camposItem,criterios,notas,novoItem,novoProjeto as novaQualidade,type Campo} from '../relatorios/qualidade/modelo';
 import {novoRegistro,novoProjetoObras} from '../relatorios/obras/modelo';
 import {projetoSchema,type Projeto} from '../relatorios/modelo';
+import {ehCampo,novoProjetoCampo,novoRegistroCampo,variantes,type ModeloCampo} from '../relatorios/campo/modelo';
+import {catalogo} from '../relatorios/catalogo';
 
 type Coluna=Campo & {image?:boolean};
 type Aba={name:string;campos:Coluna[];required:string[]};
@@ -11,18 +13,22 @@ const fotografico:Aba={name:'Fotográficos',campos:[{key:'servico',label:'Servi�
 const descritivo:Aba={name:'Descritivos',campos:[{key:'servico',label:'Serviço realizado'},{key:'tipoDescricao',label:'Tipo de descrição'},{key:'descricao',label:'Resumo/Descrição das atividades realizadas',type:'textarea'}],required:['servico']};
 const geraisObras:Campo[]=[{key:'obra',label:'Nome da obra'},{key:'tipoRelatorio',label:'Tipo de relatório'}];
 export const normalizar=(s:string)=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toLowerCase();
-const abas=(modelo:Projeto['modelo'])=>modelo==='qualidade'?[qualidade]:[fotografico,descritivo];
-const camposIdentificacao=(modelo:Projeto['modelo'])=>modelo==='qualidade'?camposGerais:geraisObras;
+const campoAba=(modelo:ModeloCampo):Aba=>{const v=variantes[modelo];return {name:v.aba,campos:[...v.item,...v.fotos.map(f=>({key:f.key,label:f.label,image:true}))],required:[v.item[0].key]};};
+// Assessment e Receitas x Despesas não usam esta planilha-modelo.
+export type ModeloExcel=Exclude<Projeto['modelo'],'assessment'|'financeiro'>;
+const abas=(modelo:ModeloExcel)=>modelo==='qualidade'?[qualidade]:modelo==='obras'?[fotografico,descritivo]:[campoAba(modelo)];
+const camposIdentificacao=(modelo:ModeloExcel)=>modelo==='qualidade'?camposGerais:modelo==='obras'?geraisObras:variantes[modelo].gerais;
+const nomeModelo=(modelo:Projeto['modelo'])=>catalogo.find(m=>m.id===modelo)!.curto;
 
-export async function criarModeloExcel(modelo:Projeto['modelo']):Promise<Uint8Array>{
+export async function criarModeloExcel(modelo:ModeloExcel):Promise<Uint8Array>{
  const wb=new ExcelJS.Workbook();wb.creator='Best Clima';
  const info=wb.addWorksheet('Instruções');info.columns=[{width:115}];
- const lines=[`MODELO — ${modelo==='qualidade'?'QUALIDADE':'AVANÇO DE OBRAS'}`,
+ const lines=[`MODELO — ${nomeModelo(modelo).toUpperCase()}`,
   'Preencha uma linha por registro nas abas de dados. Não altere os nomes das abas ou os títulos das colunas.',
   'Os novos registros serão acrescentados ao relatório aberto. Importar novamente a mesma planilha cria novos registros.',
   'Informações gerais são opcionais. Somente valores preenchidos serão aplicados, após sua confirmação.',
   'Datas: use células de data do Excel ou texto DD/MM/AAAA. Campos vazios continuam vazios.',
-  'Use os menus de seleção para prioridade, status e avaliação. Evite fórmulas: copie e cole somente os valores.',
+  'Use os menus de seleção quando a coluna oferecer opções. Evite fórmulas: copie e cole somente os valores.',
   'Fotos: insira imagens PNG ou JPG SOBRE as células, com o canto superior esquerdo na coluna de foto e na linha do registro.',
   'Uma foto por célula. Até 10 MB por imagem. Fotos dentro da célula (IMAGE/IMAGEM) e links não são importados.',
   'Você também pode deixar as fotos vazias e adicioná-las depois no aplicativo. A imagem de capa é preenchida no aplicativo.',
@@ -53,13 +59,14 @@ export async function lerPlanilha(bytes:ArrayBuffer,atual:Projeto):Promise<Revis
  if(Object.keys(zip.files).some(n=>/richData|cellimages/i.test(n)))throw new Error('A planilha contém imagens dentro de células. Insira as fotos sobre as células nas colunas indicadas no modelo.');
  const wb=new ExcelJS.Workbook();
  try{await wb.xlsx.load(bytes as unknown as ExcelJS.Buffer);}catch{throw new Error('Não foi possível ler a planilha. Salve uma cópia em .xlsx, sem senha, e tente novamente.');}
- const projeto=atual.modelo==='qualidade'?novaQualidade():novoProjetoObras();
+ if(atual.modelo==='assessment'||atual.modelo==='financeiro')throw new Error('Este relatório não usa a importação por Excel.');
+ const projeto=atual.modelo==='qualidade'?novaQualidade():atual.modelo==='obras'?novoProjetoObras():novoProjetoCampo(atual.modelo);
  const result:RevisaoExcel={projeto,erros:[],avisos:[],quantidade:0,fotos:0,campos:[],previa:[]};
  let totalErrors=0;
  const error=(where:string,message:string)=>{totalErrors++;if(result.erros.length<100)result.erros.push(`${where}: ${message}`);};
  const find=(name:string)=>wb.worksheets.find(s=>normalizar(s.name)===normalizar(name));
  const expected=abas(atual.modelo);
- if(!expected.some(a=>find(a.name)))throw new Error(`Use o modelo de ${atual.modelo==='qualidade'?'Qualidade (aba Itens)':'Avanço de Obras (abas Fotográficos e Descritivos)'}.`);
+ if(!expected.some(a=>find(a.name)))throw new Error(`Use o modelo de ${atual.modelo==='qualidade'?'Qualidade (aba Itens)':atual.modelo==='obras'?'Avanço de Obras (abas Fotográficos e Descritivos)':`${nomeModelo(atual.modelo)} (aba ${variantes[atual.modelo].aba})`}.`);
  const allowed=new Set([...expected.map(a=>normalizar(a.name)),normalizar('Instruções'),normalizar('Informações gerais'),...(atual.modelo==='qualidade'?[normalizar('Avaliação')]:[])]);
  for(const ws of wb.worksheets)if(!allowed.has(normalizar(ws.name)))result.avisos.push(`A aba “${ws.name}” não faz parte deste modelo e será ignorada.`);
  function text(cell:ExcelJS.Cell,where:string):string{
@@ -145,15 +152,17 @@ export async function lerPlanilha(bytes:ArrayBuffer,atual:Projeto):Promise<Revis
    // Blank cells keep the same defaults as manual creation.
    const filled=Object.fromEntries(Object.entries(values).filter(([,v])=>v!==''));
    if(projeto.modelo==='qualidade')projeto.itens.push({...novoItem(),...filled,...photos});
-   else projeto.itens.push({...novoRegistro(aba.name==='Fotográficos'?'fotografico':'descritivo'),...filled,...photos});
+   else if(projeto.modelo==='obras')projeto.itens.push({...novoRegistro(aba.name==='Fotográficos'?'fotografico':'descritivo'),...filled,...photos});
+   else projeto.itens.push({...novoRegistroCampo(),...filled,...photos});
    result.quantidade++;
-   if(result.previa.length<8)result.previa.push({aba:ws.name,linha:row,resumo:values.descricao||values.servico||values.local||'Registro com imagem'});
+   if(result.previa.length<8)result.previa.push({aba:ws.name,linha:row,resumo:values.descricao||values.servico||values.titulo||values.legenda||values.local||'Registro com imagem'});
   }
  }
  if(result.quantidade+atual.itens.length>10000)error('Relatório','o total de registros ultrapassa 10.000.');
  if(!result.quantidade&&!result.campos.length&&!result.erros.length)error('Planilha','não há dados preenchidos para importar.');
  if(projeto.modelo==='qualidade'&&atual.modelo==='qualidade')projeto.itens=[...atual.itens,...projeto.itens];
  if(projeto.modelo==='obras'&&atual.modelo==='obras')projeto.itens=[...atual.itens,...projeto.itens];
+ if(ehCampo(projeto)&&ehCampo(atual)){projeto.itens=[...atual.itens,...projeto.itens];projeto.conclusao=atual.conclusao;projeto.mapas=atual.mapas;}
  const checked=projetoSchema.safeParse(projeto);
  if(!checked.success&&!result.erros.length)error('Planilha','há dados incompatíveis com os limites do relatório. Confira os textos e as imagens.');
  if(totalErrors>100)result.erros.push(`Mais ${totalErrors-100} erro(s). Corrija os erros indicados e importe novamente.`);
