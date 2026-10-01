@@ -1,7 +1,7 @@
 {
   "name": "best-clima-relatorios",
   "type": "module",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Protótipo local de relatórios Best Clima",
   "author": "Best Clima",
