@@ -31,7 +31,9 @@ for(const model of ['qualidade','obras'] as const)test('Excel: importar, conferi
  await expect(dialog.getByRole('button',{name:'Confirmar importação'})).toBeEnabled();
  await expect(dialog).toContainText(model==='qualidade'?'25 registro(s)':'5 registro(s)');
  await dialog.getByRole('button',{name:'Cancelar',exact:true}).click();
- expect(await page.frameLocator('iframe').locator('.record').count()).toBe(model==='qualidade'?1:0);
+ // Cancelar não altera o relatório. Aguarda a prévia terminar de montar antes de contar (no CI ela pode estar sendo refeita).
+ await expect(page.getByRole('button',{name:/Exportar PDF/})).toBeEnabled();
+ await expect(page.frameLocator('iframe').locator('.record')).toHaveCount(model==='qualidade'?1:0);
  await page.getByRole('button',{name:'Importar Excel',exact:true}).click();
  await dialog.locator('input[accept=".xlsx"]').setInputFiles({name:'preenchida.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:await buffer(wb)});
  await expect(dialog.getByRole('button',{name:'Confirmar importação'})).toBeEnabled();await dialog.getByRole('button',{name:'Confirmar importação'}).click();
